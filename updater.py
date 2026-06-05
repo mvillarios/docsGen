@@ -7,8 +7,8 @@ si hay una versión más nueva, ofrece descargarla e instalarla.
 
 Para modificar en el futuro:
   - Cambiar la fuente de actualizaciones: edita `_obtener_ultimo_release()`
-  - Cambiar la lógica de reemplazo: edita `_aplicar_actualizacion()`
-  - Cambiar cómo se comparan versiones: edita `_hay_version_nueva()`
+  - Cambiar la lógica de reemplazo:       edita `_descargar_hilo()`
+  - Cambiar cómo se comparan versiones:   edita `_hay_version_nueva()`
 ──────────────────────────────────────────────────────────────────────────────
 """
 
@@ -16,6 +16,7 @@ import os
 import sys
 import json
 import shutil
+import logging
 import threading
 import subprocess
 import urllib.request
@@ -23,26 +24,45 @@ import urllib.error
 from pathlib import Path
 
 # ── Configuración ─────────────────────────────────────────────────────────────
-GITHUB_USER    = "mvillarios"
-GITHUB_REPO    = "docsGen"
-VERSION_FILE   = "version.txt"        # Archivo local con la versión actual
-TIMEOUT_SEG    = 5                     # Segundos de espera para la petición HTTP
+GITHUB_USER  = "mvillarios"   # ← Cambia esto
+GITHUB_REPO  = "docsGen"      # ← Cambia esto
+TIMEOUT_SEG  = 5              # Segundos de espera para la petición HTTP
+
+# Versión embebida — el workflow la reemplaza automáticamente antes de compilar
+VERSION_APP  = "1.0.0"
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Logger ────────────────────────────────────────────────────────────────────
+def _iniciar_log():
+    if getattr(sys, "frozen", False):
+        base = os.path.join(os.environ.get("APPDATA", ""), "GeneradorDocumentos")
+        os.makedirs(base, exist_ok=True)
+        log_path = os.path.join(base, "updater.log")
+    else:
+        log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.log")
+
+    logging.basicConfig(
+        filename=log_path,
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        encoding="utf-8",
+    )
+
+_iniciar_log()
+log = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 def leer_version_local() -> str:
-    """Lee la versión desde version.txt. Retorna '0.0.0' si no existe."""
-    ruta = _ruta_relativa(VERSION_FILE)
-    try:
-        return Path(ruta).read_text(encoding="utf-8").strip()
-    except FileNotFoundError:
-        return "0.0.0"
+    """Retorna la versión embebida en el ejecutable."""
+    return VERSION_APP
 
 
 def verificar_actualizacion(on_update_available: callable, on_error: callable = None):
     """
     Lanza la verificación en un hilo secundario para no bloquear la UI.
-    
+
     Parámetros:
         on_update_available(version, url_descarga): llamado si hay versión nueva.
         on_error(mensaje):                          llamado si hay un error (opcional).
@@ -55,17 +75,18 @@ def verificar_actualizacion(on_update_available: callable, on_error: callable = 
     hilo.start()
 
 
-def descargar_e_instalar(url_descarga: str, on_progreso: callable = None):
+def descargar_e_instalar(url_descarga: str, on_progreso: callable = None, on_error: callable = None):
     """
     Descarga el nuevo .exe y lo reemplaza en un hilo secundario.
 
     Parámetros:
         url_descarga:         URL directa al .exe del release de GitHub.
         on_progreso(pct:int): llamado con porcentaje 0-100 durante la descarga.
+        on_error(mensaje):    llamado si la descarga falla.
     """
     hilo = threading.Thread(
         target=_descargar_hilo,
-        args=(url_descarga, on_progreso),
+        args=(url_descarga, on_progreso, on_error),
         daemon=True,
     )
     hilo.start()
@@ -74,20 +95,29 @@ def descargar_e_instalar(url_descarga: str, on_progreso: callable = None):
 # ── Funciones internas ────────────────────────────────────────────────────────
 
 def _verificar_hilo(on_update_available, on_error):
+    version_local = leer_version_local()
+    log.info(f"Verificando actualizaciones — versión local: {version_local}")
     try:
         release = _obtener_ultimo_release()
         if release is None:
+            log.info("Sin releases disponibles o sin conexión a internet.")
             return
 
         version_remota = release["tag_name"].lstrip("v")
-        version_local  = leer_version_local()
+        log.info(f"Versión remota: {version_remota}")
 
         if _hay_version_nueva(version_local, version_remota):
+            log.info(f"Nueva versión disponible: {version_remota}")
             url = _obtener_url_exe(release)
             if url:
                 on_update_available(version_remota, url)
+            else:
+                log.warning("El release no tiene un .exe adjunto.")
+        else:
+            log.info("La aplicación está actualizada.")
 
     except Exception as e:
+        log.error(f"Error al verificar actualizaciones: {e}", exc_info=True)
         if on_error:
             on_error(str(e))
 
@@ -132,14 +162,17 @@ def _hay_version_nueva(local: str, remota: str) -> bool:
     return _partes(remota) > _partes(local)
 
 
-def _descargar_hilo(url_descarga: str, on_progreso):
+def _descargar_hilo(url_descarga: str, on_progreso, on_error):
+    exe_viejo = None
+    exe_nuevo = None
     try:
         exe_actual = _ruta_exe_actual()
         exe_nuevo  = exe_actual + ".new"
         exe_viejo  = exe_actual + ".old"
 
-        # Descargar
+        log.info(f"Iniciando descarga desde: {url_descarga}")
         _descargar_archivo(url_descarga, exe_nuevo, on_progreso)
+        log.info("Descarga completada. Reemplazando ejecutable.")
 
         # Reemplazar: actual → .old, .new → actual
         if os.path.exists(exe_viejo):
@@ -147,15 +180,18 @@ def _descargar_hilo(url_descarga: str, on_progreso):
         shutil.move(exe_actual, exe_viejo)
         shutil.move(exe_nuevo, exe_actual)
 
-        # Reiniciar la aplicación con el exe actualizado
+        log.info("Ejecutable reemplazado. Reiniciando aplicación.")
         subprocess.Popen([exe_actual])
         sys.exit(0)
 
     except Exception as e:
-        # Si algo falla, intentar restaurar el original
-        if os.path.exists(exe_viejo) and not os.path.exists(exe_actual):
-            shutil.move(exe_viejo, exe_actual)
-        raise RuntimeError(f"Error al actualizar: {e}") from e
+        log.error(f"Error durante la actualización: {e}", exc_info=True)
+        # Intentar restaurar el original si quedó a medias
+        if exe_viejo and os.path.exists(exe_viejo) and not os.path.exists(_ruta_exe_actual()):
+            shutil.move(exe_viejo, _ruta_exe_actual())
+            log.info("Ejecutable original restaurado tras el error.")
+        if on_error:
+            on_error(str(e))
 
 
 def _descargar_archivo(url: str, destino: str, on_progreso):
@@ -187,14 +223,4 @@ def _ruta_exe_actual() -> str:
     """Retorna la ruta absoluta del ejecutable actual (funciona con PyInstaller y con .py)."""
     if getattr(sys, "frozen", False):
         return sys.executable
-    # En desarrollo, simular la ruta
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py")
-
-
-def _ruta_relativa(nombre: str) -> str:
-    """Resuelve rutas relativas tanto en modo .exe como en modo .py."""
-    if getattr(sys, "frozen", False):
-        base = os.path.dirname(sys.executable)
-    else:
-        base = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(base, nombre)

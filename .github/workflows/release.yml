@@ -40,15 +40,29 @@ jobs:
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
           echo "TAG=v$VERSION" >> $GITHUB_OUTPUT
 
-      # ── 5. Compilar el .exe ──────────────────────────────────────────────
+      # ── 5. Inyectar versión dentro del código antes de compilar ─────────
+      - name: Inyectar versión en updater.py
+        shell: bash
+        run: |
+          VERSION=$(cat version.txt | tr -d '[:space:]')
+          sed -i "s/VERSION_APP  = \".*\"/VERSION_APP  = \"$VERSION\"/" updater.py
+          echo "Versión inyectada: $VERSION"
+      
+      # ── 5b. Limpiar cambios locales ──────────────────────────────────────
+      - name: Limpiar cambios locales
+        shell: bash
+        run: |
+          git reset --hard
+          git clean -fd
+
+      # ── 6. Compilar el .exe ──────────────────────────────────────────────
       - name: Compilar con PyInstaller
         run: |
           pyinstaller --onefile --windowed `
-            --add-data "version.txt;." `
             --name "Generador de Documentos" `
             app.py
 
-      # ── 6. Merge dev → main ──────────────────────────────────────────────
+      # ── 7. Merge dev → main ──────────────────────────────────────────────
       - name: Merge dev a main
         shell: bash
         run: |
@@ -58,7 +72,7 @@ jobs:
           git merge dev --no-ff -m "Release ${{ steps.version.outputs.TAG }}"
           git push origin main
 
-      # ── 7. Crear el Release en GitHub con el .exe ────────────────────────
+      # ── 8. Crear el Release en GitHub con el .exe ────────────────────────
       - name: Crear Release
         uses: softprops/action-gh-release@v2
         with:
