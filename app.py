@@ -7,6 +7,7 @@ import os
 import re
 import threading
 from datetime import datetime
+import updater
 
 # ── Tema ──────────────────────────────────────────────────────────────────────
 ctk.set_appearance_mode("light")
@@ -42,6 +43,54 @@ class AppContratos(ctk.CTk):
         self.campos_extra = {}         # campos manuales (fecha, etc.)
 
         self._build_ui()
+        # Verificar actualizaciones en segundo plano al iniciar
+        self.after(2000, self._verificar_actualizacion)
+
+    def _verificar_actualizacion(self):
+        updater.verificar_actualizacion(
+            on_update_available=self._on_actualizacion_disponible,
+            on_error=None,  # Silencioso si no hay internet
+        )
+
+    def _on_actualizacion_disponible(self, version, url):
+        """Llamado desde hilo secundario — usar after() para tocar la UI."""
+        self.after(0, lambda: self._mostrar_dialogo_actualizacion(version, url))
+
+    def _mostrar_dialogo_actualizacion(self, version, url):
+        respuesta = messagebox.askyesno(
+            "Actualización disponible",
+            f"Hay una nueva versión disponible: v{version}\n\n"
+            f"¿Deseas actualizar ahora?\n"
+            f"(La aplicación se reiniciará automáticamente)",
+        )
+        if respuesta:
+            self._iniciar_descarga(url)
+
+    def _iniciar_descarga(self, url):
+        # Mostrar ventana de progreso
+        ventana = ctk.CTkToplevel(self)
+        ventana.title("Actualizando…")
+        ventana.geometry("360x140")
+        ventana.resizable(False, False)
+        ventana.grab_set()
+
+        ctk.CTkLabel(
+            ventana,
+            text="Descargando actualización…",
+            font=ctk.CTkFont(size=14, weight="bold"),
+        ).pack(pady=(20, 10))
+
+        barra = ctk.CTkProgressBar(ventana, width=300)
+        barra.set(0)
+        barra.pack(pady=4)
+
+        lbl_pct = ctk.CTkLabel(ventana, text="0%", font=ctk.CTkFont(size=12))
+        lbl_pct.pack()
+
+        def on_progreso(pct):
+            self.after(0, lambda p=pct: (barra.set(p / 100), lbl_pct.configure(text=f"{p}%")))
+
+        updater.descargar_e_instalar(url, on_progreso=on_progreso)
 
     # ─────────────────────────────────────────────────────────────────────────
     #  CONSTRUCCIÓN DE LA INTERFAZ
@@ -54,14 +103,15 @@ class AppContratos(ctk.CTk):
 
         ctk.CTkLabel(
             header,
-            text="Generador de Documentos",
+            text="📄  Generador de Documentos",
             font=ctk.CTkFont(family="Georgia", size=22, weight="bold"),
             text_color=BLANCO,
         ).pack(side="left", padx=28, pady=20)
 
+        version_local = updater.leer_version_local()
         ctk.CTkLabel(
             header,
-            text="Contratos · Finiquitos · Cartas",
+            text=f"Contratos · Finiquitos · Cartas   |   v{version_local}",
             font=ctk.CTkFont(size=12),
             text_color="#A8C4E8",
         ).pack(side="right", padx=28, pady=20)
@@ -492,7 +542,7 @@ class AppContratos(ctk.CTk):
             if campos:
                 self._notificar(f"Word cargado. Campos detectados: {', '.join(campos)}")
             else:
-                self._notificar("⚠️  Word cargado. No se detectaron campos {{...}}. Asegúrate de usar {{nombre}}, {{rut}}, etc.")
+                self._notificar("Word cargado. No se detectaron campos {{...}}. Asegúrate de usar {{nombre}}, {{rut}}, etc.")
         except Exception as e:
             messagebox.showerror("Error al leer Word", str(e))
 
@@ -583,8 +633,8 @@ class AppContratos(ctk.CTk):
             os.startfile(destino) if os.name == "nt" else os.system(f'open "{destino}"')
 
     def _generar_error(self, error):
-        self.btn_generar.configure(state="normal", text="Generar Documento")
-        self.lbl_estado.configure(text="❌  Error al generar", text_color=ROJO)
+        self.btn_generar.configure(state="normal", text="✨  Generar Documento")
+        self.lbl_estado.configure(text="Error al generar", text_color=ROJO)
         messagebox.showerror("Error al generar documento", error)
 
     def _set_pasos_bloqueados(self):
