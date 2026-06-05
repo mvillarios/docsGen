@@ -47,6 +47,13 @@ jobs:
           VERSION=$(cat version.txt | tr -d '[:space:]')
           sed -i "s/VERSION_APP  = \".*\"/VERSION_APP  = \"$VERSION\"/" updater.py
           echo "Versión inyectada: $VERSION"
+      
+      # ── 5b. Limpiar cambios locales ──────────────────────────────────────
+      - name: Limpiar cambios locales
+        shell: bash
+        run: |
+          git reset --hard
+          git clean -fd
 
       # ── 6. Compilar el .exe ──────────────────────────────────────────────
       - name: Compilar con PyInstaller
