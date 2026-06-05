@@ -4,7 +4,7 @@ Aplicación de escritorio para generar contratos, finiquitos y cartas automátic
 
 ---
 
-## ✨ Funcionalidades
+## Funcionalidades
 
 - Lee cualquier Excel automáticamente y detecta sus columnas
 - Soporta múltiples plantillas Word (contratos, finiquitos, cartas, etc.)
@@ -15,7 +15,7 @@ Aplicación de escritorio para generar contratos, finiquitos y cartas automátic
 
 ---
 
-## 🚀 Instalación para usuarios finales
+## Instalación para usuarios finales
 
 Descarga el archivo `Generador de Documentos.exe` desde la sección [Releases](../../releases/latest) y ejecútalo con doble clic. No requiere instalar nada más.
 
@@ -23,14 +23,14 @@ La aplicación se actualiza sola cuando hay una nueva versión disponible.
 
 ---
 
-## 🛠️ Instalación para desarrollo
+## Instalación para desarrollo
 
 **Requisitos:** Python 3.10 o superior
 
 ```bash
 # 1. Clonar el repositorio
-git clone https://github.com/TU_USUARIO/TU_REPO.git
-cd TU_REPO
+git clone https://github.com/mvillarios/docsGen.git
+cd docsGen
 
 # 2. Crear entorno virtual
 python -m venv venv
@@ -50,7 +50,7 @@ python app.py
 
 ---
 
-## 📦 Compilar el ejecutable manualmente
+## Compilar el ejecutable manualmente
 
 ```bash
 pyinstaller --onefile --windowed \
@@ -63,7 +63,7 @@ El `.exe` quedará en la carpeta `dist/`.
 
 ---
 
-## 🔄 Flujo de releases (CI/CD)
+## Flujo de releases (CI/CD)
 
 Este repositorio usa GitHub Actions para compilar y publicar automáticamente.
 
@@ -95,7 +95,7 @@ El resto es automático.
 
 ---
 
-## 📝 Cómo preparar las plantillas Word
+## Cómo preparar las plantillas Word
 
 En los documentos Word, reemplaza los valores variables con marcadores entre llaves dobles. El nombre del marcador debe coincidir exactamente con el nombre de la columna en el Excel.
 
@@ -116,7 +116,7 @@ Si un campo del Word no existe en el Excel (como `{{fecha}}`), la aplicación lo
 
 ---
 
-## 📊 Cómo preparar el Excel
+## Cómo preparar el Excel
 
 - La **primera fila** debe contener los nombres de las columnas
 - Cada fila siguiente corresponde a una persona
@@ -131,7 +131,7 @@ Si un campo del Word no existe en el Excel (como `{{fecha}}`), la aplicación lo
 
 ---
 
-## 📁 Estructura del proyecto
+## Estructura del proyecto
 
 ```
 ├── .github/
@@ -146,7 +146,7 @@ Si un campo del Word no existe en el Excel (como `{{fecha}}`), la aplicación lo
 
 ---
 
-## ❓ Preguntas frecuentes
+## Preguntas frecuentes
 
 **¿El Word original se modifica al generar un documento?**
 No. Siempre se crea un archivo nuevo; la plantilla original queda intacta.
