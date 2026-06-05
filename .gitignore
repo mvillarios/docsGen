@@ -1,0 +1,12 @@
+.venv/
+dist/
+build/
+__pycache__/
+*.spec
+*.pyc
+.env
+ 
+# Archivos de ejemplo
+*.xlsx
+*.docx
+ 
