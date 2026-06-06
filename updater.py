@@ -192,7 +192,7 @@ def _descargar_hilo(url_descarga: str, on_progreso, on_error):
 
         log.info("Ejecutable reemplazado. Reiniciando aplicación.")
         subprocess.Popen([exe_actual])
-        sys.exit(0)
+        os._exit(0)
 
     except Exception as e:
         log.error(f"Error durante la actualización: {e}", exc_info=True)
