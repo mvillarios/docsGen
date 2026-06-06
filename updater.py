@@ -191,7 +191,11 @@ def _descargar_hilo(url_descarga: str, on_progreso, on_error):
         shutil.move(exe_nuevo, exe_actual)
 
         log.info("Ejecutable reemplazado. Reiniciando aplicación.")
-        subprocess.Popen([exe_actual])
+        subprocess.Popen(
+            [exe_actual],
+            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+            close_fds=True,
+        )
         os._exit(0)
 
     except Exception as e:
