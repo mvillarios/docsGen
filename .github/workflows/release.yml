@@ -42,18 +42,19 @@ jobs:
 
       # ── 5. Inyectar versión dentro del código antes de compilar ─────────
       - name: Inyectar versión en updater.py
-        shell: bash
+        shell: python
         run: |
-          VERSION=$(cat version.txt | tr -d '[:space:]')
-          sed -i "s/VERSION_APP  = \".*\"/VERSION_APP  = \"$VERSION\"/" updater.py
-          echo "Versión inyectada: $VERSION"
+          from pathlib import Path
+          version = Path("version.txt").read_text(encoding="utf-8").strip()
+          content = Path("updater.py").read_text(encoding="utf-8")
+          import re
+          content = re.sub(r'VERSION_APP\s*=\s*".*?"', f'VERSION_APP = "{version}"', content)
+          Path("updater.py").write_text(content, encoding="utf-8")
+          print(f"Versión inyectada: {version}")
       
-      # ── 5b. Limpiar cambios locales ──────────────────────────────────────
-      - name: Limpiar cambios locales
+      - name: Verificar versión inyectada
         shell: bash
-        run: |
-          git reset --hard
-          git clean -fd
+        run: grep "VERSION_APP" updater.py
 
       # ── 6. Compilar el .exe ──────────────────────────────────────────────
       - name: Compilar con PyInstaller
@@ -68,6 +69,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git stash
           git checkout main
           git merge dev --no-ff -m "Release ${{ steps.version.outputs.TAG }}"
           git push origin main
