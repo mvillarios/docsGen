@@ -91,10 +91,20 @@ def descargar_e_instalar(url_descarga: str, on_progreso: callable = None, on_err
     )
     hilo.start()
 
+def limpiar_archivos_viejos():
+    """Elimina el .exe anterior si quedó de una actualización previa."""
+    exe_viejo = _ruta_exe_actual() + ".old"
+    if os.path.exists(exe_viejo):
+        try:
+            os.remove(exe_viejo)
+            log.info("Archivo .old eliminado correctamente.")
+        except Exception as e:
+            log.warning(f"No se pudo eliminar el archivo .old: {e}")
 
 # ── Funciones internas ────────────────────────────────────────────────────────
 
 def _verificar_hilo(on_update_available, on_error):
+    limpiar_archivos_viejos()
     version_local = leer_version_local()
     log.info(f"Verificando actualizaciones — versión local: {version_local}")
     try:
