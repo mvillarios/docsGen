@@ -293,18 +293,11 @@ class AppContratos(ctk.CTk):
             ).pack(pady=10)
             return
 
-        primera_col = self.columnas[0] if self.columnas else "nombre"
+        cols = getattr(self, "columnas_visibles", self.columnas[:1])
 
         for p in personas:
-            nombre = str(p.get(primera_col, str(p)))
-            # Buscar columna de RUT
-            rut_val = ""
-            for k in p:
-                if "rut" in k.lower():
-                    rut_val = str(p[k])
-                    break
-
-            display = nombre + (f"  —  RUT {rut_val}" if rut_val else "")
+            partes = [str(p.get(c, "")) for c in cols if p.get(c)]
+            display = "   |   ".join(partes) if partes else "Sin datos"
 
             btn = ctk.CTkButton(
                 self.lista_frame,
@@ -518,18 +511,20 @@ class AppContratos(ctk.CTk):
                 messagebox.showerror("Error", "El Excel está vacío.")
                 return
 
-            self.columnas = [str(c).strip() if c is not None else f"columna_{i}"
-                             for i, c in enumerate(filas[0])]
+            self.columnas = [str(c).strip() if c is not None else None
+                            for i, c in enumerate(filas[0])]
 
+            self.columnas = [c for c in self.columnas if c is not None]
             self.personas = []
             for fila in filas[1:]:
                 if any(c is not None for c in fila):
                     persona = {self.columnas[i]: (fila[i] if i < len(fila) else "")
-                               for i in range(len(self.columnas))}
+                            for i in range(len(self.columnas))
+                            if self.columnas[i] is not None}
                     self.personas.append(persona)
 
             wb.close()
-            self._refrescar_paso2()
+            self._mostrar_selector_columnas()
             self._notificar(f"Excel cargado: {len(self.personas)} personas encontradas")
 
         except Exception as e:
@@ -645,6 +640,55 @@ class AppContratos(ctk.CTk):
         original = self.title()
         self.title(msg)
         self.after(3000, lambda: self.title(original))
+    
+    def _mostrar_selector_columnas(self):
+        for w in self.frame_paso2_inner.winfo_children():
+            w.destroy()
+
+        ctk.CTkLabel(
+            self.frame_paso2_inner,
+            text="¿Qué columnas quieres usar para identificar a las personas?",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=TEXTO,
+        ).pack(anchor="w", pady=(0, 4))
+
+        ctk.CTkLabel(
+            self.frame_paso2_inner,
+            text="Elige al menos una. Estas columnas aparecerán en la lista de búsqueda.",
+            font=ctk.CTkFont(size=11),
+            text_color=TEXTO_SUAVE,
+        ).pack(anchor="w", pady=(0, 10))
+
+        self.col_vars = {}
+        # Pre-seleccionar columnas que contengan "nombre" o "rut" en su título
+        for col in self.columnas:
+            var = tk.BooleanVar(value=any(k in col.lower() for k in ["nombre", "rut"]))
+            self.col_vars[col] = var
+            ctk.CTkCheckBox(
+                self.frame_paso2_inner,
+                text=col,
+                variable=var,
+                font=ctk.CTkFont(size=12),
+                text_color=TEXTO,
+            ).pack(anchor="w", pady=2)
+
+        ctk.CTkButton(
+            self.frame_paso2_inner,
+            text="Confirmar →",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color=AZUL_MED,
+            hover_color=AZUL,
+            height=38,
+            corner_radius=8,
+            command=self._confirmar_columnas,
+        ).pack(anchor="e", pady=(12, 0))
+    
+    def _confirmar_columnas(self):
+        self.columnas_visibles = [c for c, v in self.col_vars.items() if v.get()]
+        if not self.columnas_visibles:
+            messagebox.showwarning("Atención", "Selecciona al menos una columna.")
+            return
+        self._refrescar_paso2()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
