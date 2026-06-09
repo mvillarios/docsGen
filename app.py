@@ -8,6 +8,8 @@ import re
 import threading
 from datetime import datetime
 import updater
+import tempfile
+import shutil
 
 # ── Tema ──────────────────────────────────────────────────────────────────────
 ctk.set_appearance_mode("light")
@@ -25,6 +27,21 @@ BLANCO     = "#FFFFFF"
 TEXTO      = "#1A1A2E"
 TEXTO_SUAVE= "#64748B"
 
+PASOS = ["archivos", "trabajadores", "datos_faltantes", "generar"]
+
+MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
+         "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]
+
+def _fecha_texto(dt) -> str:
+    return f"{dt.day} de {MESES[dt.month - 1]} del {dt.year}"
+
+def _copiar_a_temp(ruta_original: str) -> str:
+    """Copia el archivo a un temporal para poder leerlo aunque este abierto en Office."""
+    ext = os.path.splitext(ruta_original)[1]
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+    tmp.close()
+    shutil.copy2(ruta_original, tmp.name)
+    return tmp.name
 
 class AppContratos(ctk.CTk):
     def __init__(self):
@@ -96,14 +113,14 @@ class AppContratos(ctk.CTk):
     #  CONSTRUCCIÓN DE LA INTERFAZ
     # ─────────────────────────────────────────────────────────────────────────
     def _build_ui(self):
-        # ── Encabezado ────────────────────────────────────────────────────────
+        # Encabezado
         header = ctk.CTkFrame(self, fg_color=AZUL, corner_radius=0, height=80)
         header.pack(fill="x")
         header.pack_propagate(False)
 
         ctk.CTkLabel(
             header,
-            text="📄  Generador de Documentos",
+            text="Generador de Documentos",
             font=ctk.CTkFont(family="Georgia", size=22, weight="bold"),
             text_color=BLANCO,
         ).pack(side="left", padx=28, pady=20)
@@ -116,61 +133,182 @@ class AppContratos(ctk.CTk):
             text_color="#A8C4E8",
         ).pack(side="right", padx=28, pady=20)
 
-        # ── Contenido principal ───────────────────────────────────────────────
-        main = ctk.CTkScrollableFrame(self, fg_color=GRIS_BG, corner_radius=0)
-        main.pack(fill="both", expand=True, padx=24, pady=20)
+        # Barra de pasos
+        self.frame_barra = ctk.CTkFrame(self, fg_color=AZUL_CLARO, corner_radius=0, height=44)
+        self.frame_barra.pack(fill="x")
+        self.frame_barra.pack_propagate(False)
+        self._build_barra_pasos()
 
-        # Paso 1: Archivos
-        self._seccion(main, "1", "Cargar archivos", self._build_paso1)
-        # Paso 2: Persona
-        self.frame_paso2 = self._seccion(main, "2", "Seleccionar persona", self._build_paso2)
-        # Paso 3: Campos extra
-        self.frame_paso3 = self._seccion(main, "3", "Revisar y completar datos", self._build_paso3)
-        # Paso 4: Generar
-        self.frame_paso4 = self._seccion(main, "4", "Generar documento", self._build_paso4)
+        # Contenedor del paso actual
+        self.frame_contenido = ctk.CTkScrollableFrame(self, fg_color=GRIS_BG, corner_radius=0)
+        self.frame_contenido.pack(fill="both", expand=True, padx=24, pady=20)
 
-        self._set_pasos_bloqueados()
+        # Navegacion
+        nav = ctk.CTkFrame(self, fg_color=BLANCO, corner_radius=0, height=60)
+        nav.pack(fill="x", side="bottom")
+        nav.pack_propagate(False)
 
-    def _seccion(self, parent, numero, titulo, builder_fn):
-        """Crea una tarjeta de sección y llama a builder_fn para rellenarla."""
-        card = ctk.CTkFrame(parent, fg_color=BLANCO, corner_radius=12,
-                             border_width=1, border_color=GRIS_BORDE)
-        card.pack(fill="x", pady=(0, 14))
-
-        # Encabezado de sección
-        top = ctk.CTkFrame(card, fg_color=AZUL_CLARO, corner_radius=0, height=44)
-        top.pack(fill="x")
-        top.pack_propagate(False)
-
-        badge = ctk.CTkLabel(
-            top,
-            text=numero,
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color=BLANCO,
-            fg_color=AZUL_MED,
-            corner_radius=14,
-            width=28, height=28,
+        self.btn_inicio = ctk.CTkButton(
+            nav,
+            text="Reiniciar",
+            font=ctk.CTkFont(size=12),
+            fg_color="transparent",
+            hover_color=AZUL_CLARO,
+            text_color=TEXTO_SUAVE,
+            corner_radius=8,
+            height=38,
+            width=100,
+            command=self._reiniciar,
         )
-        badge.pack(side="left", padx=14, pady=8)
+        self.btn_inicio.pack(side="left", padx=(6, 0), pady=10)
 
-        ctk.CTkLabel(
-            top,
-            text=titulo,
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color=AZUL,
-        ).pack(side="left", pady=8)
+        self.btn_atras = ctk.CTkButton(
+            nav,
+            text="Atras",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color=GRIS_BORDE,
+            hover_color="#B0BCC8",
+            text_color=TEXTO,
+            corner_radius=8,
+            height=38,
+            width=120,
+            command=self._paso_atras,
+        )
+        self.btn_atras.pack(side="left", padx=20, pady=10)
 
-        # Cuerpo
-        body = ctk.CTkFrame(card, fg_color=BLANCO, corner_radius=0)
-        body.pack(fill="x", padx=20, pady=16)
+        self.btn_siguiente = ctk.CTkButton(
+            nav,
+            text="Siguiente",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color=AZUL_MED,
+            hover_color=AZUL,
+            text_color=BLANCO,
+            corner_radius=8,
+            height=38,
+            width=120,
+            command=self._paso_siguiente,
+        )
+        self.btn_siguiente.pack(side="right", padx=20, pady=10)
 
-        builder_fn(body)
-        return body
+        self.paso_actual = 0
+        self._renderizar_paso()
+        self.after(2000, self._verificar_actualizacion)
 
+    def _build_barra_pasos(self):
+        titulos = ["1. Archivos", "2. Trabajadores", "3. Datos faltantes", "4. Generar"]
+        for w in self.frame_barra.winfo_children():
+            w.destroy()
+        for i, titulo in enumerate(titulos):
+            activo = i == getattr(self, "paso_actual", 0)
+            ctk.CTkLabel(
+                self.frame_barra,
+                text=titulo,
+                font=ctk.CTkFont(size=12, weight="bold" if activo else "normal"),
+                text_color=AZUL if activo else TEXTO_SUAVE,
+                fg_color=BLANCO if activo else "transparent",
+                corner_radius=6,
+                padx=12,
+                pady=4,
+            ).pack(side="left", padx=6, pady=8)
+
+    def _renderizar_paso(self):
+        self._limpiar_variables()
+        for w in self.frame_contenido.winfo_children():
+            w.destroy()
+        self._build_barra_pasos()
+
+        pasos_fn = [
+            self._paso_archivos,
+            self._paso_trabajadores,
+            self._paso_datos_faltantes,
+            self._paso_generar,
+        ]
+        pasos_fn[self.paso_actual]()
+
+        self.btn_atras.configure(state="normal" if self.paso_actual > 0 else "disabled")
+        ultimo = self.paso_actual == len(PASOS) - 1
+        self.btn_siguiente.configure(
+            text="Generar" if ultimo else "Siguiente",
+            fg_color=VERDE if ultimo else AZUL_MED,
+            hover_color="#15803D" if ultimo else AZUL,
+            command=self._generar if ultimo else self._paso_siguiente,
+        )
+
+    def _paso_siguiente(self):
+        if self.paso_actual == 0:
+            if not self.excel_path.get() or not self.word_path.get():
+                messagebox.showwarning("Atencion", "Selecciona ambos archivos antes de continuar.")
+                return
+        if self.paso_actual == 1:
+            if not getattr(self, "trabajadores_sel", []):
+                messagebox.showwarning("Atencion", "Selecciona al menos un trabajador.")
+                return
+
+            campos_word = self._detectar_campos_word()
+            campos_excel = {k.lower() for k in self.columnas}
+            campos_en_ambos = [c for c in campos_word if c.lower() in campos_excel]
+
+            avisos = []
+            for persona in self.trabajadores_sel:
+                nombre = str(list(persona.values())[0])
+                faltantes = [
+                    c for c in campos_en_ambos
+                    if not persona.get(c) and not persona.get(c.lower())
+                ]
+                if faltantes:
+                    avisos.append(f"{nombre}: falta {', '.join(faltantes)}")
+
+            if avisos:
+                msg = "Los siguientes trabajadores tienen datos vacios:\n\n" + "\n".join(avisos)
+                msg += "\n\nPuedes continuar de todas formas o volver a revisar."
+                continuar = messagebox.askyesno("Datos incompletos", msg)
+                if not continuar:
+                    return
+        if self.paso_actual < len(PASOS) - 1:
+            self.paso_actual += 1
+            self._renderizar_paso()
+
+    def _paso_atras(self):
+        if self.paso_actual > 0:
+            self.paso_actual -= 1
+            self._renderizar_paso()
+    
+    def _reiniciar(self):
+        self.excel_path.set("")
+        self.word_path.set("")
+        self.personas = []
+        self.columnas = []
+        self.trabajadores_sel = []
+        self.campos_extra_vars = {}
+        self.paso_actual = 0
+        self._renderizar_paso()
+
+    def _limpiar_variables(self):
+        if hasattr(self, "busqueda_var") and hasattr(self, "_trace_id_busqueda"):
+            try:
+                self.busqueda_var.trace_remove("write", self._trace_id_busqueda)
+            except Exception:
+                pass
+            del self.busqueda_var
+            del self._trace_id_busqueda
+
+        if hasattr(self, "col_vars"):
+            del self.col_vars
+
+        if hasattr(self, "check_vars_trabajadores"):
+            del self.check_vars_trabajadores
     # ─────────────────────────────────────────────────────────────────────────
     #  PASO 1 – ARCHIVOS
     # ─────────────────────────────────────────────────────────────────────────
-    def _build_paso1(self, parent):
+    def _paso_archivos(self):
+        parent = self.frame_contenido
+        ctk.CTkLabel(
+            parent,
+            text="Selecciona los archivos",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color=TEXTO,
+        ).pack(anchor="w", pady=(0, 16))
+
         self._file_row(
             parent,
             "Archivo Excel con personas:",
@@ -234,172 +372,209 @@ class AppContratos(ctk.CTk):
     # ─────────────────────────────────────────────────────────────────────────
     #  PASO 2 – PERSONA
     # ─────────────────────────────────────────────────────────────────────────
-    def _build_paso2(self, parent):
-        self.frame_paso2_inner = parent
-
-        self.lbl_buscar = ctk.CTkLabel(
-            parent,
-            text="Primero carga el Excel (paso 1)",
-            font=ctk.CTkFont(size=13),
-            text_color=TEXTO_SUAVE,
-        )
-        self.lbl_buscar.pack(anchor="w")
-
-    def _refrescar_paso2(self):
-        for w in self.frame_paso2_inner.winfo_children():
-            w.destroy()
+    def _paso_trabajadores(self):
+        parent = self.frame_contenido
 
         ctk.CTkLabel(
-            self.frame_paso2_inner,
-            text="Buscar por nombre o RUT:",
-            font=ctk.CTkFont(size=13, weight="bold"),
+            parent,
+            text="Selecciona los trabajadores",
+            font=ctk.CTkFont(size=16, weight="bold"),
             text_color=TEXTO,
-            anchor="w",
-        ).pack(fill="x", pady=(0, 6))
+        ).pack(anchor="w", pady=(0, 4))
 
+        ctk.CTkLabel(
+            parent,
+            text="Puedes seleccionar uno o varios.",
+            font=ctk.CTkFont(size=11),
+            text_color=TEXTO_SUAVE,
+        ).pack(anchor="w", pady=(0, 10))
+
+        # Selector de columnas visibles
+        ctk.CTkLabel(
+            parent,
+            text="Columnas a mostrar en la lista:",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=TEXTO,
+        ).pack(anchor="w", pady=(0, 4))
+
+        fila_cols = ctk.CTkFrame(parent, fg_color="transparent")
+        fila_cols.pack(fill="x", pady=(0, 10))
+
+        if not hasattr(self, "col_vars"):
+            self.col_vars = {
+                col: tk.BooleanVar(value=any(k in col.lower() for k in ["nombre", "rut"]))
+                for col in self.columnas
+            }
+
+        for col in self.columnas:
+            ctk.CTkCheckBox(
+                fila_cols,
+                text=col,
+                variable=self.col_vars[col],
+                font=ctk.CTkFont(size=11),
+                command=self._refrescar_lista_trabajadores,
+            ).pack(side="left", padx=6)
+
+        # Busqueda
         self.busqueda_var = tk.StringVar()
-        self.busqueda_var.trace_add("write", self._filtrar_personas)
+        self._trace_id_busqueda = self.busqueda_var.trace_add("write", lambda *_: self._refrescar_lista_trabajadores())
 
         ctk.CTkEntry(
-            self.frame_paso2_inner,
+            parent,
             textvariable=self.busqueda_var,
-            placeholder_text="Escriba para filtrar…",
+            placeholder_text="Buscar...",
             font=ctk.CTkFont(size=13),
             height=40,
             border_color=ACENTO,
-        ).pack(fill="x", pady=(0, 10))
+        ).pack(fill="x", pady=(0, 8))
 
-        # Lista con scrollbar
-        lista_frame = ctk.CTkScrollableFrame(
-            self.frame_paso2_inner,
-            fg_color=GRIS_BG,
-            corner_radius=8,
-            height=180,
+        # Botones seleccionar/deseleccionar todos
+        fila_sel = ctk.CTkFrame(parent, fg_color="transparent")
+        fila_sel.pack(fill="x", pady=(0, 6))
+
+        ctk.CTkButton(
+            fila_sel,
+            text="Seleccionar todos",
+            font=ctk.CTkFont(size=11),
+            fg_color=AZUL_CLARO,
+            text_color=AZUL,
+            hover_color=GRIS_BORDE,
+            height=28,
+            corner_radius=6,
+            command=lambda: self._sel_todos(True),
+        ).pack(side="left", padx=(0, 6))
+
+        ctk.CTkButton(
+            fila_sel,
+            text="Deseleccionar todos",
+            font=ctk.CTkFont(size=11),
+            fg_color=AZUL_CLARO,
+            text_color=AZUL,
+            hover_color=GRIS_BORDE,
+            height=28,
+            corner_radius=6,
+            command=lambda: self._sel_todos(False),
+        ).pack(side="left")
+
+        # Lista
+        self.lista_frame = ctk.CTkScrollableFrame(
+            parent, fg_color=GRIS_BG, corner_radius=8, height=240,
         )
-        lista_frame.pack(fill="x")
-        self.lista_frame = lista_frame
-        self._mostrar_lista(self.personas)
+        self.lista_frame.pack(fill="x")
 
-    def _mostrar_lista(self, personas):
+        if not hasattr(self, "trabajadores_sel"):
+            self.trabajadores_sel = []
+
+        self._refrescar_lista_trabajadores()
+
+    def _refrescar_lista_trabajadores(self):
         for w in self.lista_frame.winfo_children():
             w.destroy()
 
-        if not personas:
-            ctk.CTkLabel(
-                self.lista_frame,
-                text="No se encontraron resultados",
-                text_color=TEXTO_SUAVE,
-                font=ctk.CTkFont(size=12),
-            ).pack(pady=10)
-            return
+        cols_visibles = [c for c, v in self.col_vars.items() if v.get()]
+        if not cols_visibles:
+            cols_visibles = self.columnas[:1]
 
-        cols = getattr(self, "columnas_visibles", self.columnas[:1])
+        q = getattr(self, "busqueda_var", tk.StringVar()).get().lower().strip()
+        personas = [
+            p for p in self.personas
+            if not q or any(q in str(v).lower() for v in p.values())
+        ]
+
+        if not hasattr(self, "check_vars_trabajadores"):
+            self.check_vars_trabajadores = {}
 
         for p in personas:
-            partes = [str(p.get(c, "")) for c in cols if p.get(c)]
+            key = str(list(p.values()))
+            if key not in self.check_vars_trabajadores:
+                self.check_vars_trabajadores[key] = tk.BooleanVar(value=p in self.trabajadores_sel)
+
+            partes = [str(p.get(c, "")) for c in cols_visibles if p.get(c)]
             display = "   |   ".join(partes) if partes else "Sin datos"
 
-            btn = ctk.CTkButton(
+            def on_toggle(persona=p, k=key):
+                if self.check_vars_trabajadores[k].get():
+                    if persona not in self.trabajadores_sel:
+                        self.trabajadores_sel.append(persona)
+                else:
+                    if persona in self.trabajadores_sel:
+                        self.trabajadores_sel.remove(persona)
+
+            ctk.CTkCheckBox(
                 self.lista_frame,
                 text=display,
+                variable=self.check_vars_trabajadores[key],
                 font=ctk.CTkFont(size=12),
-                fg_color="transparent",
                 text_color=TEXTO,
-                hover_color=AZUL_CLARO,
-                anchor="w",
-                height=36,
-                corner_radius=6,
-                border_width=0,
-                command=lambda persona=p: self._seleccionar_persona(persona),
-            )
-            btn.pack(fill="x", pady=1)
+                command=on_toggle,
+            ).pack(anchor="w", pady=3, padx=6)
 
-    def _filtrar_personas(self, *_):
-        q = self.busqueda_var.get().lower().strip()
-        if not q:
-            self._mostrar_lista(self.personas)
-            return
-        filtradas = [
-            p for p in self.personas
-            if any(q in str(v).lower() for v in p.values())
-        ]
-        self._mostrar_lista(filtradas)
+    def _sel_todos(self, valor: bool):
+        for key, var in self.check_vars_trabajadores.items():
+            var.set(valor)
+        if valor:
+            self.trabajadores_sel = list(self.personas)
+        else:
+            self.trabajadores_sel = []
 
     # ─────────────────────────────────────────────────────────────────────────
     #  PASO 3 – CAMPOS EXTRA
     # ─────────────────────────────────────────────────────────────────────────
-    def _build_paso3(self, parent):
-        self.frame_paso3_inner = parent
+    def _paso_datos_faltantes(self):
+        parent = self.frame_contenido
+
         ctk.CTkLabel(
             parent,
-            text="Selecciona una persona primero",
-            font=ctk.CTkFont(size=13),
-            text_color=TEXTO_SUAVE,
-        ).pack(anchor="w")
-
-    def _refrescar_paso3(self):
-        for w in self.frame_paso3_inner.winfo_children():
-            w.destroy()
-
-        if not self.persona_sel:
-            return
-
-        # ── Datos de la persona (solo lectura) ────────────────────────────
-        ctk.CTkLabel(
-            self.frame_paso3_inner,
-            text="Datos de la persona seleccionada:",
-            font=ctk.CTkFont(size=13, weight="bold"),
+            text="Datos faltantes",
+            font=ctk.CTkFont(size=16, weight="bold"),
             text_color=TEXTO,
-        ).pack(anchor="w", pady=(0, 8))
+        ).pack(anchor="w", pady=(0, 4))
 
-        grid = ctk.CTkFrame(self.frame_paso3_inner, fg_color=AZUL_CLARO, corner_radius=8)
-        grid.pack(fill="x", pady=(0, 14))
-
-        cols = 2
-        items = list(self.persona_sel.items())
-        for i, (k, v) in enumerate(items):
-            row_f = ctk.CTkFrame(grid, fg_color="transparent")
-            row_f.grid(row=i // cols, column=i % cols, sticky="ew", padx=12, pady=4)
-            grid.grid_columnconfigure(i % cols, weight=1)
-
-            ctk.CTkLabel(row_f, text=f"{k}:", font=ctk.CTkFont(size=11, weight="bold"),
-                         text_color=AZUL_MED, anchor="w").pack(anchor="w")
-            ctk.CTkLabel(row_f, text=str(v) if v else "—",
-                         font=ctk.CTkFont(size=12), text_color=TEXTO, anchor="w").pack(anchor="w")
-
-        # ── Detectar campos del Word no cubiertos por Excel ───────────────
         campos_word = self._detectar_campos_word()
-        campos_excel = {k.lower() for k in self.persona_sel.keys()}
-        campos_faltantes = [c for c in campos_word if c.lower() not in campos_excel]
+        campos_excel = {k.lower() for k in self.columnas}
+        campos_faltantes_word = [c for c in campos_word if c.lower() not in campos_excel]
 
+        # Campos que estan en el excel pero vacios para algún trabajador
+        campos_en_ambos = [c for c in campos_word if c.lower() in campos_excel]
+
+        # self.campos_extra_vars ahora es dict de {nombre_trabajador: {campo: StringVar}}
         self.campos_extra_vars = {}
 
-        if campos_faltantes:
+        hay_algo = False
+
+        for persona in self.trabajadores_sel:
+            nombre_persona = str(list(persona.values())[0])
+            self.campos_extra_vars[nombre_persona] = {}
+
+            # Campos vacios en el excel para esta persona
+            faltantes_excel = [
+                c for c in campos_en_ambos
+                if not persona.get(c) and not persona.get(c.lower())
+            ]
+
+            campos_este_trabajador = campos_faltantes_word + faltantes_excel
+
+            if not campos_este_trabajador:
+                continue
+
+            hay_algo = True
+
+            # Separador por trabajador
+            sep = ctk.CTkFrame(parent, fg_color=AZUL_CLARO, corner_radius=8)
+            sep.pack(fill="x", pady=(10, 6))
             ctk.CTkLabel(
-                self.frame_paso3_inner,
-                text="Campos adicionales del documento:",
+                sep,
+                text=nombre_persona,
                 font=ctk.CTkFont(size=13, weight="bold"),
-                text_color=TEXTO,
-            ).pack(anchor="w", pady=(4, 8))
+                text_color=AZUL,
+            ).pack(anchor="w", padx=12, pady=6)
 
-            ctk.CTkLabel(
-                self.frame_paso3_inner,
-                text="Estos campos aparecen en el Word y no están en el Excel.",
-                font=ctk.CTkFont(size=11),
-                text_color=TEXTO_SUAVE,
-            ).pack(anchor="w", pady=(0, 8))
-
-            for campo in campos_faltantes:
-                row = ctk.CTkFrame(self.frame_paso3_inner, fg_color="transparent")
-                row.pack(fill="x", pady=3)
-
-                # Sugerir fecha de hoy para campos de fecha
-                default = ""
-                if "fecha" in campo.lower():
-                    default = datetime.today().strftime("%d/%m/%Y")
+            for campo in campos_este_trabajador:
+                fila = ctk.CTkFrame(parent, fg_color="transparent")
+                fila.pack(fill="x", pady=4, padx=8)
 
                 ctk.CTkLabel(
-                    row,
+                    fila,
                     text=f"{campo}:",
                     font=ctk.CTkFont(size=12, weight="bold"),
                     text_color=TEXTO,
@@ -407,15 +582,60 @@ class AppContratos(ctk.CTk):
                     anchor="w",
                 ).pack(side="left")
 
-                var = tk.StringVar(value=default)
-                self.campos_extra_vars[campo] = var
-                ctk.CTkEntry(
-                    row,
-                    textvariable=var,
-                    font=ctk.CTkFont(size=12),
-                    height=34,
-                    border_color=GRIS_BORDE,
-                ).pack(side="left", fill="x", expand=True)
+                if "fecha" in campo.lower():
+                    var = tk.StringVar(value=datetime.today().strftime("%d/%m/%Y"))
+                    self.campos_extra_vars[nombre_persona][campo] = var
+
+                    contenedor = ctk.CTkFrame(fila, fg_color="transparent")
+                    contenedor.pack(side="left", fill="x", expand=True)
+
+                    ctk.CTkEntry(
+                        contenedor,
+                        textvariable=var,
+                        font=ctk.CTkFont(size=12),
+                        height=34,
+                        border_color=GRIS_BORDE,
+                    ).pack(fill="x", pady=(0, 4))
+
+                    fila_formatos = ctk.CTkFrame(contenedor, fg_color="transparent")
+                    fila_formatos.pack(fill="x")
+
+                    formatos = [
+                        ("13/05/2025",          lambda v: datetime.today().strftime("%d/%m/%Y")),
+                        ("13-05-2025",          lambda v: datetime.today().strftime("%d-%m-%Y")),
+                        ("13 de Mayo del 2025", lambda v: _fecha_texto(datetime.today())),
+                        ("2025-05-13",          lambda v: datetime.today().strftime("%Y-%m-%d")),
+                    ]
+                    for etiqueta, fn in formatos:
+                        ctk.CTkButton(
+                            fila_formatos,
+                            text=etiqueta,
+                            font=ctk.CTkFont(size=10),
+                            fg_color=AZUL_CLARO,
+                            text_color=AZUL,
+                            hover_color=GRIS_BORDE,
+                            height=24,
+                            corner_radius=4,
+                            command=lambda f=fn, variable=var: variable.set(f(variable.get())),
+                        ).pack(side="left", padx=2)
+                else:
+                    var = tk.StringVar(value="")
+                    self.campos_extra_vars[nombre_persona][campo] = var
+                    ctk.CTkEntry(
+                        fila,
+                        textvariable=var,
+                        font=ctk.CTkFont(size=12),
+                        height=34,
+                        border_color=GRIS_BORDE,
+                    ).pack(side="left", fill="x", expand=True)
+
+        if not hay_algo:
+            ctk.CTkLabel(
+                parent,
+                text="No hay datos faltantes. Todos los trabajadores tienen sus datos completos.",
+                font=ctk.CTkFont(size=13),
+                text_color=VERDE,
+            ).pack(anchor="w", pady=10)
 
     def _detectar_campos_word(self):
         if not self.word_path.get():
@@ -437,73 +657,80 @@ class AppContratos(ctk.CTk):
     # ─────────────────────────────────────────────────────────────────────────
     #  PASO 4 – GENERAR
     # ─────────────────────────────────────────────────────────────────────────
-    def _build_paso4(self, parent):
-        self.frame_paso4_inner = parent
+    def _paso_generar(self):
+        parent = self.frame_contenido
 
         ctk.CTkLabel(
             parent,
-            text="Completa los pasos anteriores para habilitar la generación.",
-            font=ctk.CTkFont(size=13),
-            text_color=TEXTO_SUAVE,
-        ).pack(anchor="w")
+            text="Configurar y generar",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color=TEXTO,
+        ).pack(anchor="w", pady=(0, 16))
 
-    def _refrescar_paso4(self):
-        for w in self.frame_paso4_inner.winfo_children():
-            w.destroy()
-
-        # Nombre sugerido
+        # Formato del nombre de archivo
         ctk.CTkLabel(
-            self.frame_paso4_inner,
-            text="Nombre del archivo a guardar:",
+            parent,
+            text="Formato del nombre de archivo:",
             font=ctk.CTkFont(size=13, weight="bold"),
             text_color=TEXTO,
+        ).pack(anchor="w", pady=(0, 4))
+
+        ctk.CTkLabel(
+            parent,
+            text="Usa {columna} para insertar datos del trabajador. Ejemplo: {nombre}_{cargo}_{fecha}",
+            font=ctk.CTkFont(size=11),
+            text_color=TEXTO_SUAVE,
         ).pack(anchor="w", pady=(0, 6))
 
-        primera_col = self.columnas[0] if self.columnas else "nombre"
-        nombre_base = str(self.persona_sel.get(primera_col, "documento"))
-        template_base = os.path.splitext(os.path.basename(self.word_path.get()))[0]
-        hoy = datetime.today().strftime("%Y%m%d")
-        sugerido = f"{template_base}_{nombre_base}_{hoy}.docx"
-        # Limpiar caracteres no válidos
-        sugerido = re.sub(r'[\\/*?:"<>|]', "_", sugerido)
+        # Botones rapidos de columnas disponibles
+        fila_cols = ctk.CTkFrame(parent, fg_color="transparent")
+        fila_cols.pack(fill="x", pady=(0, 6))
 
-        self.nombre_salida_var = tk.StringVar(value=sugerido)
+        self.formato_nombre_var = tk.StringVar(
+            value="{nombre}_{cargo}" if "cargo" in [c.lower() for c in self.columnas] else "{" + self.columnas[0] + "}"
+        )
+
+        for col in self.columnas[:6]:
+            ctk.CTkButton(
+                fila_cols,
+                text=f"+{col}",
+                font=ctk.CTkFont(size=10),
+                fg_color=AZUL_CLARO,
+                text_color=AZUL,
+                hover_color=GRIS_BORDE,
+                height=24,
+                corner_radius=4,
+                command=lambda c=col: self.formato_nombre_var.set(
+                    self.formato_nombre_var.get() + f"_{{{c}}}"
+                ),
+            ).pack(side="left", padx=2)
+
         ctk.CTkEntry(
-            self.frame_paso4_inner,
-            textvariable=self.nombre_salida_var,
+            parent,
+            textvariable=self.formato_nombre_var,
             font=ctk.CTkFont(size=12),
             height=38,
             border_color=GRIS_BORDE,
         ).pack(fill="x", pady=(0, 16))
 
-        # Botón grande
-        self.btn_generar = ctk.CTkButton(
-            self.frame_paso4_inner,
-            text="Generar Documento",
-            font=ctk.CTkFont(size=16, weight="bold"),
-            fg_color=VERDE,
-            hover_color="#15803D",
-            text_color=BLANCO,
-            corner_radius=10,
-            height=52,
-            command=self._generar,
-        )
-        self.btn_generar.pack(fill="x")
-
-        self.lbl_estado = ctk.CTkLabel(
-            self.frame_paso4_inner,
-            text="",
+        # Resumen
+        n = len(getattr(self, "trabajadores_sel", []))
+        ctk.CTkLabel(
+            parent,
+            text=f"Se generaran {n} documento(s).",
             font=ctk.CTkFont(size=13),
-            text_color=VERDE,
-        )
-        self.lbl_estado.pack(pady=(10, 0))
+            text_color=TEXTO_SUAVE,
+        ).pack(anchor="w", pady=(0, 16))
 
+        self.lbl_estado = ctk.CTkLabel(parent, text="", font=ctk.CTkFont(size=13), text_color=VERDE)
+        self.lbl_estado.pack(anchor="w")
     # ─────────────────────────────────────────────────────────────────────────
     #  LÓGICA
     # ─────────────────────────────────────────────────────────────────────────
     def _cargar_excel(self, path):
         try:
-            wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+            ruta_lectura = _copiar_a_temp(path)
+            wb = openpyxl.load_workbook(ruta_lectura, read_only=True, data_only=True)
             ws = wb.active
 
             filas = list(ws.iter_rows(values_only=True))
@@ -524,7 +751,6 @@ class AppContratos(ctk.CTk):
                     self.personas.append(persona)
 
             wb.close()
-            self._mostrar_selector_columnas()
             self._notificar(f"Excel cargado: {len(self.personas)} personas encontradas")
 
         except Exception as e:
@@ -541,155 +767,106 @@ class AppContratos(ctk.CTk):
         except Exception as e:
             messagebox.showerror("Error al leer Word", str(e))
 
-    def _seleccionar_persona(self, persona):
-        self.persona_sel = persona
-        self._refrescar_paso3()
-        if self.word_path.get():
-            self._refrescar_paso4()
-
     def _generar(self):
-        if not self.persona_sel:
-            messagebox.showwarning("Atención", "Selecciona una persona primero.")
-            return
-        if not self.word_path.get():
-            messagebox.showwarning("Atención", "Selecciona el Word base primero.")
+        if not getattr(self, "trabajadores_sel", []):
+            messagebox.showwarning("Atencion", "No hay trabajadores seleccionados.")
             return
 
-        # Carpeta de destino
-        destino = filedialog.asksaveasfilename(
-            defaultextension=".docx",
-            filetypes=[("Word", "*.docx")],
-            initialfile=self.nombre_salida_var.get(),
-            title="Guardar documento como…",
-        )
-        if not destino:
+        carpeta = filedialog.askdirectory(title="Selecciona la carpeta donde guardar los documentos")
+        if not carpeta:
             return
 
-        self.btn_generar.configure(state="disabled", text="Generando…")
-        threading.Thread(target=self._generar_thread, args=(destino,), daemon=True).start()
+        self.btn_siguiente.configure(state="disabled", text="Generando...")
+        threading.Thread(target=self._generar_thread, args=(carpeta,), daemon=True).start()
 
-    def _generar_thread(self, destino):
-        try:
-            doc = Document(self.word_path.get())
+    def _generar_thread(self, carpeta):
+        errores = []
+        generados = 0
 
-            # Construir mapa de reemplazos (case-insensitive)
-            reemplazos = {}
-            for k, v in self.persona_sel.items():
-                reemplazos[k.strip()] = str(v) if v is not None else ""
-            for k, var in getattr(self, "campos_extra_vars", {}).items():
-                reemplazos[k.strip()] = var.get()
+        for persona in self.trabajadores_sel:
+            try:
+                ruta_lectura = _copiar_a_temp(self.word_path.get())
+                doc = Document(ruta_lectura)
 
-            def reemplazar_texto(texto):
-                def sub(m):
-                    campo = m.group(1).strip()
-                    # Búsqueda case-insensitive
-                    for k, v in reemplazos.items():
-                        if k.lower() == campo.lower():
-                            return v
-                    return m.group(0)  # Dejar sin cambio si no se encontró
-                return re.sub(r"\{\{([^}]+)\}\}", sub, texto)
+                reemplazos = {k.strip(): str(v) if v is not None else "" for k, v in persona.items()}
+                nombre_persona = str(list(persona.values())[0])
+                extras = self.campos_extra_vars.get(nombre_persona, {})
+                for k, var in extras.items():
+                    reemplazos[k.strip()] = var.get()
 
-            def procesar_parrafo(parrafo):
-                # Preservar formato juntando runs y re-escribiendo
-                texto_completo = parrafo.text
-                nuevo_texto = reemplazar_texto(texto_completo)
-                if texto_completo != nuevo_texto:
-                    # Limpiar y reescribir en el primer run
+                def reemplazar_texto(texto):
+                    def sub(m):
+                        campo = m.group(1).strip()
+                        for k, v in reemplazos.items():
+                            if k.lower() == campo.lower():
+                                return v
+                        return m.group(0)
+                    return re.sub(r"\{\{([^}]+)\}\}", sub, texto)
+
+                def procesar_parrafo(parrafo):
+                    texto_completo = parrafo.text
+                    nuevo_texto = reemplazar_texto(texto_completo)
+                    if texto_completo == nuevo_texto:
+                        return
+                    # Copiar formato del primer run que tenga contenido
+                    run_base = next((r for r in parrafo.runs if r.text.strip()), None)
                     for i, run in enumerate(parrafo.runs):
                         run.text = nuevo_texto if i == 0 else ""
+                    # Restaurar formato del run base en el primero
+                    if run_base and parrafo.runs:
+                        r = parrafo.runs[0]
+                        r.bold      = run_base.bold
+                        r.italic    = run_base.italic
+                        r.underline = run_base.underline
+                        r.font.size = run_base.font.size
+                        r.font.name = run_base.font.name
+                        r.font.color.rgb = run_base.font.color.rgb if run_base.font.color and run_base.font.color.type else r.font.color.rgb
 
-            for p in doc.paragraphs:
-                procesar_parrafo(p)
+                for p in doc.paragraphs:
+                    procesar_parrafo(p)
+                for tabla in doc.tables:
+                    for fila in tabla.rows:
+                        for celda in fila.cells:
+                            for p in celda.paragraphs:
+                                procesar_parrafo(p)
 
-            for tabla in doc.tables:
-                for fila in tabla.rows:
-                    for celda in fila.cells:
-                        for p in celda.paragraphs:
-                            procesar_parrafo(p)
+                # Generar nombre del archivo
+                formato = self.formato_nombre_var.get()
+                nombre_archivo = formato
+                for k, v in reemplazos.items():
+                    nombre_archivo = nombre_archivo.replace(f"{{{k}}}", str(v))
+                hoy = datetime.today().strftime("%Y%m%d")
+                nombre_archivo = nombre_archivo.replace("{fecha}", hoy)
+                nombre_archivo = re.sub(r'[\\/*?:"<>|]', "_", nombre_archivo)
+                nombre_archivo = nombre_archivo.strip("_ ") + ".docx"
 
-            doc.save(destino)
+                ruta_final = os.path.join(carpeta, nombre_archivo)
+                doc.save(ruta_final)
+                generados += 1
 
-            self.after(0, self._generar_exito, destino)
+            except Exception as e:
+                nombre = str(list(persona.values())[0])
+                errores.append(f"{nombre}: {e}")
 
-        except Exception as e:
-            self.after(0, self._generar_error, str(e))
+        self.after(0, lambda: self._generar_resultado(carpeta, generados, errores))
 
-    def _generar_exito(self, destino):
-        self.btn_generar.configure(state="normal", text="Generar Documento")
-        self.lbl_estado.configure(
-            text=f"Documento guardado exitosamente",
-            text_color=VERDE,
-        )
-        respuesta = messagebox.askyesno(
-            "¡Listo!",
-            f"El documento fue creado:\n\n{destino}\n\n¿Deseas abrirlo ahora?",
-        )
-        if respuesta:
-            os.startfile(destino) if os.name == "nt" else os.system(f'open "{destino}"')
+    def _generar_resultado(self, carpeta, generados, errores):
+        self.btn_siguiente.configure(state="normal", text="Generar", fg_color=VERDE)
+        self.lbl_estado.configure(text=f"{generados} documento(s) generado(s) correctamente.")
 
-    def _generar_error(self, error):
-        self.btn_generar.configure(state="normal", text="✨  Generar Documento")
-        self.lbl_estado.configure(text="Error al generar", text_color=ROJO)
-        messagebox.showerror("Error al generar documento", error)
+        if errores:
+            messagebox.showwarning("Algunos errores", "\n".join(errores))
 
-    def _set_pasos_bloqueados(self):
-        pass  # Los pasos muestran mensajes guía hasta que se carguen los datos
+        if generados > 0:
+            respuesta = messagebox.askyesno("Listo", f"Se generaron {generados} documento(s).\n¿Abrir la carpeta?")
+            if respuesta:
+                os.startfile(carpeta) if os.name == "nt" else os.system(f'open "{carpeta}"')
 
     def _notificar(self, msg):
         """Muestra un toast temporal en el título."""
         original = self.title()
         self.title(msg)
         self.after(3000, lambda: self.title(original))
-    
-    def _mostrar_selector_columnas(self):
-        for w in self.frame_paso2_inner.winfo_children():
-            w.destroy()
-
-        ctk.CTkLabel(
-            self.frame_paso2_inner,
-            text="¿Qué columnas quieres usar para identificar a las personas?",
-            font=ctk.CTkFont(size=13, weight="bold"),
-            text_color=TEXTO,
-        ).pack(anchor="w", pady=(0, 4))
-
-        ctk.CTkLabel(
-            self.frame_paso2_inner,
-            text="Elige al menos una. Estas columnas aparecerán en la lista de búsqueda.",
-            font=ctk.CTkFont(size=11),
-            text_color=TEXTO_SUAVE,
-        ).pack(anchor="w", pady=(0, 10))
-
-        self.col_vars = {}
-        # Pre-seleccionar columnas que contengan "nombre" o "rut" en su título
-        for col in self.columnas:
-            var = tk.BooleanVar(value=any(k in col.lower() for k in ["nombre", "rut"]))
-            self.col_vars[col] = var
-            ctk.CTkCheckBox(
-                self.frame_paso2_inner,
-                text=col,
-                variable=var,
-                font=ctk.CTkFont(size=12),
-                text_color=TEXTO,
-            ).pack(anchor="w", pady=2)
-
-        ctk.CTkButton(
-            self.frame_paso2_inner,
-            text="Confirmar →",
-            font=ctk.CTkFont(size=13, weight="bold"),
-            fg_color=AZUL_MED,
-            hover_color=AZUL,
-            height=38,
-            corner_radius=8,
-            command=self._confirmar_columnas,
-        ).pack(anchor="e", pady=(12, 0))
-    
-    def _confirmar_columnas(self):
-        self.columnas_visibles = [c for c, v in self.col_vars.items() if v.get()]
-        if not self.columnas_visibles:
-            messagebox.showwarning("Atención", "Selecciona al menos una columna.")
-            return
-        self._refrescar_paso2()
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
