@@ -250,7 +250,8 @@ class AppContratos(ctk.CTk):
 
             avisos = []
             for persona in self.trabajadores_sel:
-                nombre = str(list(persona.values())[0])
+                col_id = getattr(self, "col_identificador_var", tk.StringVar(value=self.columnas[0])).get()
+                nombre = str(persona.get(col_id, str(list(persona.values())[0])))
                 faltantes = [
                     c for c in campos_en_ambos
                     if not persona.get(c) and not persona.get(c.lower())
@@ -281,6 +282,10 @@ class AppContratos(ctk.CTk):
         self.trabajadores_sel = []
         self.campos_extra_vars = {}
         self.paso_actual = 0
+        if hasattr(self, "col_identificador_var"):
+            del self.col_identificador_var
+        if hasattr(self, "espacios_var"):
+            del self.espacios_var
         self._renderizar_paso()
 
     def _limpiar_variables(self):
@@ -397,23 +402,65 @@ class AppContratos(ctk.CTk):
             text_color=TEXTO,
         ).pack(anchor="w", pady=(0, 4))
 
-        fila_cols = ctk.CTkFrame(parent, fg_color="transparent")
-        fila_cols.pack(fill="x", pady=(0, 10))
+        frame_cols = ctk.CTkFrame(parent, fg_color=AZUL_CLARO, corner_radius=8)
+        frame_cols.pack(fill="x", pady=(0, 10))
+
+        def _es_col_identificadora(col):
+            c = col.lower()
+            return any(k in c for k in ["rut", "run", "nombre", "nombres", "apellido"])
 
         if not hasattr(self, "col_vars"):
             self.col_vars = {
-                col: tk.BooleanVar(value=any(k in col.lower() for k in ["nombre", "rut"]))
+                col: tk.BooleanVar(value=_es_col_identificadora(col))
                 for col in self.columnas
             }
 
-        for col in self.columnas:
+        # Distribuir en filas de máximo 4 columnas
+        max_por_fila = 4
+        for i, col in enumerate(self.columnas):
+            if i % max_por_fila == 0:
+                fila_cols = ctk.CTkFrame(frame_cols, fg_color="transparent")
+                fila_cols.pack(fill="x", padx=8, pady=2)
+
             ctk.CTkCheckBox(
                 fila_cols,
                 text=col,
                 variable=self.col_vars[col],
                 font=ctk.CTkFont(size=11),
                 command=self._refrescar_lista_trabajadores,
-            ).pack(side="left", padx=6)
+            ).pack(side="left", padx=10, pady=4)
+        
+        ctk.CTkLabel(
+            parent,
+            text="Columna para identificar a cada persona (se usa como nombre en datos faltantes):",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=TEXTO,
+        ).pack(anchor="w", pady=(10, 4))
+
+        if not hasattr(self, "col_identificador_var"):
+            default = (
+                next((c for c in self.columnas if any(k in c.lower() for k in ["rut", "run"])), None)
+                or next((c for c in self.columnas if any(k in c.lower() for k in ["nombre", "nombres"])), None)
+                or self.columnas[0]
+            )
+            self.col_identificador_var = tk.StringVar(value=default)
+        frame_id = ctk.CTkFrame(parent, fg_color=AZUL_CLARO, corner_radius=8)
+        frame_id.pack(fill="x", pady=(0, 10))
+
+        max_por_fila = 4
+        for i, col in enumerate(self.columnas):
+            if i % max_por_fila == 0:
+                fila_id = ctk.CTkFrame(frame_id, fg_color="transparent")
+                fila_id.pack(fill="x", padx=8, pady=2)
+
+            ctk.CTkRadioButton(
+                fila_id,
+                text=col,
+                variable=self.col_identificador_var,
+                value=col,
+                font=ctk.CTkFont(size=11),
+                text_color=TEXTO,
+            ).pack(side="left", padx=10, pady=4)
 
         # Busqueda
         self.busqueda_var = tk.StringVar()
@@ -542,8 +589,39 @@ class AppContratos(ctk.CTk):
 
         hay_algo = False
 
+        ctk.CTkLabel(
+            parent,
+            text="Formato para fechas del Excel:",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=TEXTO,
+        ).pack(anchor="w", pady=(0, 4))
+
+        if not hasattr(self, "formato_fecha_var"):
+            self.formato_fecha_var = tk.StringVar(value="%d/%m/%Y")
+
+        formatos_globales = [
+            ("13/05/2025",          "%d/%m/%Y"),
+            ("13-05-2025",          "%d-%m-%Y"),
+            ("13 de Mayo del 2025", "texto"),
+            ("2025-05-13",          "%Y-%m-%d"),
+        ]
+
+        fila_fmt = ctk.CTkFrame(parent, fg_color="transparent")
+        fila_fmt.pack(fill="x", pady=(0, 14))
+
+        for etiqueta, fmt in formatos_globales:
+            ctk.CTkRadioButton(
+                fila_fmt,
+                text=etiqueta,
+                variable=self.formato_fecha_var,
+                value=fmt,
+                font=ctk.CTkFont(size=11),
+                text_color=TEXTO,
+            ).pack(side="left", padx=8)
+
         for persona in self.trabajadores_sel:
-            nombre_persona = str(list(persona.values())[0])
+            col_id = getattr(self, "col_identificador_var", tk.StringVar(value=self.columnas[0])).get()
+            nombre_persona = str(persona.get(col_id, str(list(persona.values())[0])))
             self.campos_extra_vars[nombre_persona] = {}
 
             # Campos vacios en el excel para esta persona
@@ -675,6 +753,35 @@ class AppContratos(ctk.CTk):
             text_color=TEXTO,
         ).pack(anchor="w", pady=(0, 4))
 
+        if not hasattr(self, "espacios_var"):
+            self.espacios_var = tk.StringVar(value="guion_bajo")
+
+        fila_espacios = ctk.CTkFrame(parent, fg_color="transparent")
+        fila_espacios.pack(fill="x", pady=(0, 12))
+
+        ctk.CTkLabel(
+            fila_espacios,
+            text="Espacios en el nombre del archivo:",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=TEXTO,
+        ).pack(side="left", padx=(0, 12))
+
+        ctk.CTkRadioButton(
+            fila_espacios,
+            text="Usar guion bajo  (mi_documento)",
+            variable=self.espacios_var,
+            value="guion_bajo",
+            font=ctk.CTkFont(size=11),
+        ).pack(side="left", padx=6)
+
+        ctk.CTkRadioButton(
+            fila_espacios,
+            text="Mantener espacios  (mi documento)",
+            variable=self.espacios_var,
+            value="espacios",
+            font=ctk.CTkFont(size=11),
+        ).pack(side="left", padx=6)
+
         ctk.CTkLabel(
             parent,
             text="Usa {columna} para insertar datos del trabajador. Ejemplo: {nombre}_{cargo}_{fecha}",
@@ -789,7 +896,18 @@ class AppContratos(ctk.CTk):
                 doc = Document(ruta_lectura)
 
                 reemplazos = {k.strip(): str(v) if v is not None else "" for k, v in persona.items()}
-                nombre_persona = str(list(persona.values())[0])
+                # Convertir fechas del Excel al formato elegido
+                from datetime import datetime as dt_type
+                fmt = getattr(self, "formato_fecha_var", tk.StringVar(value="%d/%m/%Y")).get()
+                for k, v in persona.items():
+                    if isinstance(v, dt_type):
+                        if fmt == "texto":
+                            reemplazos[k.strip()] = _fecha_texto(v)
+                        else:
+                            reemplazos[k.strip()] = v.strftime(fmt)
+                
+                col_id = getattr(self, "col_identificador_var", tk.StringVar(value=self.columnas[0])).get()
+                nombre_persona = str(persona.get(col_id, str(list(persona.values())[0])))
                 extras = self.campos_extra_vars.get(nombre_persona, {})
                 for k, var in extras.items():
                     reemplazos[k.strip()] = var.get()
@@ -804,23 +922,74 @@ class AppContratos(ctk.CTk):
                     return re.sub(r"\{\{([^}]+)\}\}", sub, texto)
 
                 def procesar_parrafo(parrafo):
-                    texto_completo = parrafo.text
+                    texto_completo = "".join(r.text for r in parrafo.runs)
                     nuevo_texto = reemplazar_texto(texto_completo)
                     if texto_completo == nuevo_texto:
                         return
-                    # Copiar formato del primer run que tenga contenido
-                    run_base = next((r for r in parrafo.runs if r.text.strip()), None)
-                    for i, run in enumerate(parrafo.runs):
-                        run.text = nuevo_texto if i == 0 else ""
-                    # Restaurar formato del run base en el primero
-                    if run_base and parrafo.runs:
-                        r = parrafo.runs[0]
-                        r.bold      = run_base.bold
-                        r.italic    = run_base.italic
-                        r.underline = run_base.underline
-                        r.font.size = run_base.font.size
-                        r.font.name = run_base.font.name
-                        r.font.color.rgb = run_base.font.color.rgb if run_base.font.color and run_base.font.color.type else r.font.color.rgb
+
+                    # Construir mapa de formato por posición de caracter
+                    mapa_formato = []
+                    for r in parrafo.runs:
+                        for _ in r.text:
+                            mapa_formato.append({
+                                "bold":      r.bold,
+                                "italic":    r.italic,
+                                "underline": r.underline,
+                                "size":      r.font.size,
+                                "name":      r.font.name,
+                            })
+
+                    # Encontrar dónde empieza cada marcador en el texto original
+                    # y qué formato tenía, para aplicarlo al texto reemplazado
+                    reemplazos_formato = {}
+                    for m in re.finditer(r"\{\{([^}]+)\}\}", texto_completo):
+                        campo = m.group(1).strip()
+                        pos = m.start()
+                        fmt = mapa_formato[pos] if pos < len(mapa_formato) else None
+                        reemplazos_formato[campo.lower()] = fmt
+
+                    # Reconstruir el texto con los reemplazos aplicados
+                    # Dividir nuevo_texto en segmentos: texto normal y valores reemplazados
+                    # Para eso, reconstruir desde el original rastreando qué fue reemplazado
+                    segmentos = []  # lista de (texto, fmt_dict o None)
+
+                    cursor = 0
+                    for m in re.finditer(r"\{\{([^}]+)\}\}", texto_completo):
+                        campo = m.group(1).strip()
+                        # Texto antes del marcador
+                        if m.start() > cursor:
+                            segmentos.append((texto_completo[cursor:m.start()], mapa_formato[cursor] if cursor < len(mapa_formato) else None))
+                        # Valor reemplazado con formato del marcador
+                        valor = reemplazar_texto(m.group(0))
+                        fmt = reemplazos_formato.get(campo.lower())
+                        segmentos.append((valor, fmt))
+                        cursor = m.end()
+                    # Texto después del último marcador
+                    if cursor < len(texto_completo):
+                        segmentos.append((texto_completo[cursor:], mapa_formato[cursor] if cursor < len(mapa_formato) else None))
+
+                    # Limpiar runs existentes y crear uno por segmento
+                    # Guardar el formato del primer run como base para copiar font name/size
+                    run_base = parrafo.runs[0] if parrafo.runs else None
+                    for r in parrafo.runs:
+                        r.text = ""
+
+                    for texto_seg, fmt in segmentos:
+                        if not texto_seg:
+                            continue
+                        run = parrafo.add_run(texto_seg)
+                        if fmt:
+                            run.bold      = fmt["bold"]
+                            run.italic    = fmt["italic"]
+                            run.underline = fmt["underline"]
+                            run.font.size = fmt["size"]
+                            if fmt["name"]:
+                                run.font.name = fmt["name"]
+                        elif run_base:
+                            run.bold      = run_base.bold
+                            run.italic    = run_base.italic
+                            run.underline = run_base.underline
+                            run.font.size = run_base.font.size
 
                 for p in doc.paragraphs:
                     procesar_parrafo(p)
@@ -838,14 +1007,18 @@ class AppContratos(ctk.CTk):
                 hoy = datetime.today().strftime("%Y%m%d")
                 nombre_archivo = nombre_archivo.replace("{fecha}", hoy)
                 nombre_archivo = re.sub(r'[\\/*?:"<>|]', "_", nombre_archivo)
-                nombre_archivo = nombre_archivo.strip("_ ") + ".docx"
+                nombre_archivo = nombre_archivo.strip("_ ")
+                if getattr(self, "espacios_var", tk.StringVar(value="guion_bajo")).get() == "guion_bajo":
+                    nombre_archivo = nombre_archivo.replace(" ", "_")
+                nombre_archivo = nombre_archivo + ".docx"
 
                 ruta_final = os.path.join(carpeta, nombre_archivo)
                 doc.save(ruta_final)
                 generados += 1
 
             except Exception as e:
-                nombre = str(list(persona.values())[0])
+                col_id = getattr(self, "col_identificador_var", tk.StringVar(value=self.columnas[0])).get()
+                nombre = str(persona.get(col_id, str(list(persona.values())[0])))
                 errores.append(f"{nombre}: {e}")
 
         self.after(0, lambda: self._generar_resultado(carpeta, generados, errores))
