@@ -17,7 +17,6 @@ import json
 import logging
 import os
 import re
-import shutil
 import sys
 import threading
 import subprocess
@@ -95,14 +94,17 @@ def descargar_e_instalar(url_descarga: str, sha256_esperado: str = "",
     hilo.start()
 
 def limpiar_archivos_viejos():
-    """Elimina el .exe anterior si quedó de una actualización previa."""
-    exe_viejo = _ruta_exe_actual() + ".old"
-    if os.path.exists(exe_viejo):
-        try:
-            os.remove(exe_viejo)
-            log.info("Archivo .old eliminado correctamente.")
-        except Exception as e:
-            log.warning(f"No se pudo eliminar el archivo .old: {e}")
+    """Elimina residuos de actualizaciones previas (.old, .new, .bat)."""
+    exe_base = _ruta_exe_actual() if getattr(sys, "frozen", False) else None
+    if exe_base:
+        for ext in (".old", ".new", ".bat"):
+            ruta = exe_base + ext
+            if os.path.exists(ruta):
+                try:
+                    os.remove(ruta)
+                    log.info(f"Residuo eliminado: {ruta}")
+                except Exception as e:
+                    log.warning(f"No se pudo eliminar {ruta}: {e}")
 
 # ── Funciones internas ────────────────────────────────────────────────────────
 
@@ -188,13 +190,32 @@ def _hay_version_nueva(local: str, remota: str) -> bool:
     return _partes(remota) > _partes(local)
 
 
+def _escribir_script_reemplazo(exe_actual: str, exe_nuevo: str) -> str:
+    """Escribe un .bat que espera a que el proceso termine y reemplaza el .exe."""
+    nombre_exe = os.path.basename(exe_actual)
+    bat_path = exe_actual + ".bat"
+    bat_content = (
+        '@echo off\r\n'
+        ':: Generado por docsGen updater\r\n'
+        ':wait\r\n'
+        f'timeout /t 1 /nobreak >nul\r\n'
+        f'tasklist /FI "IMAGENAME eq {nombre_exe}" 2>nul | find /I "{nombre_exe}" >nul\r\n'
+        f'if not errorlevel 1 goto wait\r\n'
+        f'del "{exe_actual}"\r\n'
+        f'ren "{exe_nuevo}" "{nombre_exe}"\r\n'
+        f'start "" "{exe_actual}"\r\n'
+        f'del "%~f0"\r\n'
+    )
+    with open(bat_path, "w", encoding="utf-8") as f:
+        f.write(bat_content)
+    return bat_path
+
+
 def _descargar_hilo(url_descarga: str, sha256_esperado: str, on_progreso, on_error):
-    exe_viejo = None
     exe_nuevo = None
     try:
         exe_actual = _ruta_exe_actual()
         exe_nuevo  = exe_actual + ".new"
-        exe_viejo  = exe_actual + ".old"
 
         log.info(f"Iniciando descarga desde: {url_descarga}")
         _descargar_archivo(url_descarga, exe_nuevo, on_progreso)
@@ -217,17 +238,12 @@ def _descargar_hilo(url_descarga: str, sha256_esperado: str, on_progreso, on_err
                 )
             log.info("Integridad verificada correctamente.")
 
-        log.info("Reemplazando ejecutable.")
+        log.info("Creando script de reemplazo diferido.")
+        bat_path = _escribir_script_reemplazo(exe_actual, exe_nuevo)
 
-        # Reemplazar: actual → .old, .new → actual
-        if os.path.exists(exe_viejo):
-            os.remove(exe_viejo)
-        shutil.move(exe_actual, exe_viejo)
-        shutil.move(exe_nuevo, exe_actual)
-
-        log.info("Ejecutable reemplazado. Reiniciando aplicación.")
+        log.info("Lanzando script y cerrando aplicación.")
         subprocess.Popen(
-            [exe_actual],
+            [bat_path],
             creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
             close_fds=True,
         )
@@ -236,10 +252,12 @@ def _descargar_hilo(url_descarga: str, sha256_esperado: str, on_progreso, on_err
 
     except Exception as e:
         log.error(f"Error durante la actualización: {e}", exc_info=True)
-        # Intentar restaurar el original si quedó a medias
-        if exe_viejo and os.path.exists(exe_viejo) and not os.path.exists(_ruta_exe_actual()):
-            shutil.move(exe_viejo, _ruta_exe_actual())
-            log.info("Ejecutable original restaurado tras el error.")
+        if exe_nuevo and os.path.exists(exe_nuevo):
+            try:
+                os.remove(exe_nuevo)
+                log.info("Archivo .new temporal eliminado tras el error.")
+            except Exception:
+                pass
         if on_error:
             on_error(str(e))
 
