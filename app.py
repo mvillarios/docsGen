@@ -235,7 +235,7 @@ class AppContratos(ctk.CTk):
             ctk.CTkLabel(
                 self.frame_barra, text=titulo,
                 font=ctk.CTkFont(size=12, weight="bold" if activo else "normal"),
-                text_color=AZUL if activo else TEXTO_SUAVE,
+                        text_color=TEXTO if activo else TEXTO_SUAVE,
                 fg_color=frame_fg if activo else "transparent",
                 corner_radius=6, padx=12, pady=4,
             ).pack(side="left", padx=6, pady=8)
@@ -335,7 +335,7 @@ class AppContratos(ctk.CTk):
                     idx = self.frame_barra.winfo_children().index(w)
                     activo = idx == getattr(self, "paso_actual", 0)
                     w.configure(
-                        text_color=AZUL if activo else TEXTO_SUAVE,
+                text_color=TEXTO if activo else TEXTO_SUAVE,
                         fg_color=frame_fg if activo else "transparent",
                     )
                 except ValueError:
