@@ -58,14 +58,11 @@ jobs:
 
       # ── 6. Verificar que la app importa correctamente ────────────────────
       - name: Verificar imports
-        shell: python
+        shell: bash
         run: |
-          import app
-          print("✓ app.py importado correctamente")
-          import updater
-          print("✓ updater.py importado correctamente")
-          import engine
-          print("✓ engine.py importado correctamente")
+          python -c "import app; print('✓ app.py importado correctamente')"
+          python -c "import updater; print('✓ updater.py importado correctamente')"
+          python -c "import engine; print('✓ engine.py importado correctamente')"
 
       # ── 7. Compilar el .exe ──────────────────────────────────────────────
       - name: Compilar con PyInstaller
