@@ -199,9 +199,8 @@ def _escribir_script_reemplazo(exe_actual: str, exe_nuevo: str) -> str:
         ':: Generado por docsGen updater\r\n'
         ':wait\r\n'
         f'timeout /t 1 /nobreak >nul\r\n'
-        f'tasklist /FI "IMAGENAME eq {nombre_exe}" 2>nul | find /I "{nombre_exe}" >nul\r\n'
-        f'if not errorlevel 1 goto wait\r\n'
-        f'del "{exe_actual}"\r\n'
+        f'del "{exe_actual}" 2>nul\r\n'
+        f'if exist "{exe_actual}" goto wait\r\n'
         f'ren "{exe_nuevo}" "{nombre_exe}"\r\n'
         f'start "" "{exe_actual}"\r\n'
         f'del "%~f0"\r\n'
@@ -242,9 +241,18 @@ def _descargar_hilo(url_descarga: str, sha256_esperado: str, on_progreso, on_err
         bat_path = _escribir_script_reemplazo(exe_actual, exe_nuevo)
 
         log.info("Lanzando script y cerrando aplicación.")
+        CREATE_NO_WINDOW = 0x08000000
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags = subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 0  # SW_HIDE
         subprocess.Popen(
             [bat_path],
-            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+            creationflags=(
+                subprocess.DETACHED_PROCESS
+                | CREATE_NO_WINDOW
+                | subprocess.CREATE_NEW_PROCESS_GROUP
+            ),
+            startupinfo=startupinfo,
             close_fds=True,
         )
         logging.shutdown()
