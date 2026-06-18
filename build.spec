@@ -18,6 +18,7 @@ a = Analysis(
         "tkinterdnd2",
         "PIL",
         "PIL._tkinter_finder",
+        "unicodedata",
     ],
     hookspath=[],
     hooksconfig={},
