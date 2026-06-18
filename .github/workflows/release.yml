@@ -29,7 +29,7 @@ jobs:
       # ── 3. Instalar dependencias ─────────────────────────────────────────
       - name: Instalar dependencias
         run: |
-          pip install customtkinter openpyxl python-docx pillow pyinstaller
+          pip install customtkinter openpyxl python-docx pillow pyinstaller docx2pdf tkinterdnd2
 
       # ── 4. Leer versión actual ───────────────────────────────────────────
       - name: Leer versión
@@ -56,26 +56,59 @@ jobs:
         shell: bash
         run: grep "VERSION_APP" updater.py
 
-      # ── 6. Compilar el .exe ──────────────────────────────────────────────
+      # ── 6. Verificar que la app importa correctamente ────────────────────
+      - name: Verificar imports
+        shell: python
+        run: |
+          import app
+          print("✓ app.py importado correctamente")
+          import updater
+          print("✓ updater.py importado correctamente")
+          import engine
+          print("✓ engine.py importado correctamente")
+
+      # ── 7. Compilar el .exe ──────────────────────────────────────────────
       - name: Compilar con PyInstaller
         run: |
-          pyinstaller --onefile --windowed `
-            --name "Generador de Documentos" `
-            app.py
+          pyinstaller build.spec
 
-      # ── 7. Merge dev → main ──────────────────────────────────────────────
+      # ── 8. Generar checksum SHA256 ───────────────────────────────────────
+      - name: Generar SHA256
+        id: checksum
+        shell: bash
+        run: |
+          CHECKSUM=$(sha256sum dist/docsGen.exe | cut -d' ' -f1)
+          echo "SHA256=$CHECKSUM" >> $GITHUB_OUTPUT
+
+      # ── 9. Merge dev → main ──────────────────────────────────────────────
       - name: Merge dev a main
         shell: bash
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git stash
+          git restore updater.py
           git checkout main
           git merge dev --no-ff -m "Release ${{ steps.version.outputs.TAG }}"
-          git push origin main
+        env:
+          GIT_MERGE_AUTOEDIT: no
 
-      # ── 8. Crear el Release en GitHub con el .exe ────────────────────────
+      - name: Push main
+        shell: bash
+        run: git push origin main
+
+      # ── 10. Eliminar release anterior (mantener solo el último) ──────────
+      - name: Eliminar release anterior
+        shell: bash
+        run: |
+          TAG_ANTERIOR=$(gh release list --limit 2 --json tagName -q '.[1].tagName' 2>/dev/null || echo "")
+          if [ -n "$TAG_ANTERIOR" ]; then
+            gh release delete "$TAG_ANTERIOR" --yes --delete-tag || true
+            echo "Release anterior $TAG_ANTERIOR eliminado"
+          fi
+
+      # ── 11. Crear el Release en GitHub con el .exe ────────────────────────
       - name: Crear Release
+        if: success()
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.TAG }}
@@ -85,6 +118,8 @@ jobs:
             ## Generador de Documentos ${{ steps.version.outputs.TAG }}
             
             Descarga el archivo `.exe` y reemplaza el anterior, o deja que la app lo haga automáticamente.
-          files: dist/Generador de Documentos.exe
+
+            **SHA256:** `${{ steps.checksum.outputs.SHA256 }}`
+          files: dist/docsGen.exe
           draft: false
           prerelease: false
