@@ -1,14 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
 .venv/
+venv/
+
+# PyInstaller
 dist/
 build/
-__pycache__/
-*.spec
-*.pyc
-.env
- 
-# Archivos de ejemplo
-*.xlsx
-*.docx
- 
+
 # Logs
-updater.log
+*.log
+
+# Config local
+config.json
+
+# IDE
+.vscode/
+.idea/

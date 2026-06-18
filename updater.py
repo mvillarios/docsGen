@@ -12,20 +12,21 @@ Para modificar en el futuro:
 ──────────────────────────────────────────────────────────────────────────────
 """
 
-import os
-import sys
+import hashlib
 import json
-import shutil
 import logging
+import os
+import re
+import shutil
+import sys
 import threading
 import subprocess
 import urllib.request
 import urllib.error
-from pathlib import Path
 
 # ── Configuración ─────────────────────────────────────────────────────────────
-GITHUB_USER  = "mvillarios"   # ← Cambia esto
-GITHUB_REPO  = "docsGen"      # ← Cambia esto
+GITHUB_USER  = os.environ.get("UPDATER_GITHUB_USER", "mvillarios")
+GITHUB_REPO  = os.environ.get("UPDATER_GITHUB_REPO", "docsGen")
 TIMEOUT_SEG  = 5              # Segundos de espera para la petición HTTP
 
 # Versión embebida — el workflow la reemplaza automáticamente antes de compilar
@@ -64,8 +65,8 @@ def verificar_actualizacion(on_update_available: callable, on_error: callable = 
     Lanza la verificación en un hilo secundario para no bloquear la UI.
 
     Parámetros:
-        on_update_available(version, url_descarga): llamado si hay versión nueva.
-        on_error(mensaje):                          llamado si hay un error (opcional).
+        on_update_available(version, url_descarga, sha256): llamado si hay versión nueva.
+        on_error(mensaje):                                  llamado si hay un error (opcional).
     """
     hilo = threading.Thread(
         target=_verificar_hilo,
@@ -75,18 +76,20 @@ def verificar_actualizacion(on_update_available: callable, on_error: callable = 
     hilo.start()
 
 
-def descargar_e_instalar(url_descarga: str, on_progreso: callable = None, on_error: callable = None):
+def descargar_e_instalar(url_descarga: str, sha256_esperado: str = "",
+                         on_progreso: callable = None, on_error: callable = None):
     """
     Descarga el nuevo .exe y lo reemplaza en un hilo secundario.
 
     Parámetros:
         url_descarga:         URL directa al .exe del release de GitHub.
+        sha256_esperado:      Hash SHA256 esperado para verificar la descarga.
         on_progreso(pct:int): llamado con porcentaje 0-100 durante la descarga.
         on_error(mensaje):    llamado si la descarga falla.
     """
     hilo = threading.Thread(
         target=_descargar_hilo,
-        args=(url_descarga, on_progreso, on_error),
+        args=(url_descarga, sha256_esperado, on_progreso, on_error),
         daemon=True,
     )
     hilo.start()
@@ -120,7 +123,8 @@ def _verificar_hilo(on_update_available, on_error):
             log.info(f"Nueva versión disponible: {version_remota}")
             url = _obtener_url_exe(release)
             if url:
-                on_update_available(version_remota, url)
+                sha256 = _extraer_sha256(release)
+                on_update_available(version_remota, url, sha256)
             else:
                 log.warning("El release no tiene un .exe adjunto.")
         else:
@@ -150,6 +154,15 @@ def _obtener_ultimo_release() -> dict | None:
         return None       # Sin conexión a internet
 
 
+def _extraer_sha256(release: dict) -> str:
+    body = release.get("body", "")
+    for linea in body.splitlines():
+        m = re.search(r"SHA256[:\s]+([a-fA-F0-9]{64})", linea)
+        if m:
+            return m.group(1)
+    return ""
+
+
 def _obtener_url_exe(release: dict) -> str | None:
     """Extrae la URL de descarga del primer .exe en los assets del release."""
     for asset in release.get("assets", []):
@@ -159,20 +172,23 @@ def _obtener_url_exe(release: dict) -> str | None:
 
 
 def _hay_version_nueva(local: str, remota: str) -> bool:
-    """
-    Compara versiones semánticas (mayor.menor.parche).
-    Retorna True si la versión remota es mayor que la local.
-    """
     def _partes(v: str):
-        try:
-            return tuple(int(x) for x in v.split("."))
-        except ValueError:
-            return (0, 0, 0)
-
+        partes = []
+        for x in v.split("."):
+            digitos = ""
+            for c in x:
+                if c.isdigit():
+                    digitos += c
+                else:
+                    break
+            partes.append(int(digitos) if digitos else 0)
+        while len(partes) < 3:
+            partes.append(0)
+        return tuple(partes[:3])
     return _partes(remota) > _partes(local)
 
 
-def _descargar_hilo(url_descarga: str, on_progreso, on_error):
+def _descargar_hilo(url_descarga: str, sha256_esperado: str, on_progreso, on_error):
     exe_viejo = None
     exe_nuevo = None
     try:
@@ -182,7 +198,26 @@ def _descargar_hilo(url_descarga: str, on_progreso, on_error):
 
         log.info(f"Iniciando descarga desde: {url_descarga}")
         _descargar_archivo(url_descarga, exe_nuevo, on_progreso)
-        log.info("Descarga completada. Reemplazando ejecutable.")
+        log.info("Descarga completada. Verificando integridad.")
+
+        if sha256_esperado:
+            sha256_real = hashlib.sha256()
+            with open(exe_nuevo, "rb") as f:
+                while True:
+                    chunk = f.read(65536)
+                    if not chunk:
+                        break
+                    sha256_real.update(chunk)
+            hash_real = sha256_real.hexdigest()
+            if hash_real.lower() != sha256_esperado.lower():
+                raise IOError(
+                    f"El hash SHA256 no coincide.\n"
+                    f"Esperado: {sha256_esperado}\n"
+                    f"Obtenido: {hash_real}"
+                )
+            log.info("Integridad verificada correctamente.")
+
+        log.info("Reemplazando ejecutable.")
 
         # Reemplazar: actual → .old, .new → actual
         if os.path.exists(exe_viejo):
@@ -196,6 +231,7 @@ def _descargar_hilo(url_descarga: str, on_progreso, on_error):
             creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
             close_fds=True,
         )
+        logging.shutdown()
         os._exit(0)
 
     except Exception as e:
@@ -234,7 +270,6 @@ def _descargar_archivo(url: str, destino: str, on_progreso):
 
 
 def _ruta_exe_actual() -> str:
-    """Retorna la ruta absoluta del ejecutable actual (funciona con PyInstaller y con .py)."""
     if getattr(sys, "frozen", False):
         return sys.executable
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py")
+    raise RuntimeError("La actualización solo funciona en el ejecutable compilado (no en modo desarrollo).")
