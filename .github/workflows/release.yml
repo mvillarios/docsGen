@@ -67,7 +67,8 @@ jobs:
       # ── 7. Compilar el .exe ──────────────────────────────────────────────
       - name: Compilar con PyInstaller
         run: |
-          pyinstaller build.spec
+          pip install --upgrade pyinstaller
+          pyinstaller --clean build.spec
 
       # ── 8. Generar checksum SHA256 ───────────────────────────────────────
       - name: Generar SHA256
